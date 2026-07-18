@@ -1,9 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Steam Profit Analyzer Local",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "Calcula o lucro de cartas direto no navegador.",
   "permissions": ["storage"],
+  "host_permissions": [
+    "https://steamcommunity.com/*",
+    "https://store.steampowered.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

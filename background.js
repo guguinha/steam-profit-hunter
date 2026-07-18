@@ -1,37 +1,45 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "buscarCartas") {
         
-        // Montamos a URL oficial de busca do mercado da Steam para pegar a carta mais barata do jogo
-        const urlAPI = `https://steamcommunity.com/market/search/render/?query=&start=0&count=1&search_descriptions=0&sort_column=price&sort_dir=asc&appid=753&category_753_Game%5B%5D=tag_app_${request.appId}&category_753_item_class%5B%5D=tag_item_class_2`;
+        // Count 100 é o limite máximo da API. Isso garante que venha o set completo.
+        const urlAPI = `https://steamcommunity.com/market/search/render/?query=&start=0&count=100&search_descriptions=0&appid=753&category_753_Game%5B%5D=tag_app_${request.appId}&category_753_item_class%5B%5D=tag_item_class_2&norender=1`;
 
-        fetch(urlAPI)
+        fetch(urlAPI, { credentials: 'include' })
             .then(response => {
-                // A Steam bloqueia temporariamente quem faz muitos pedidos seguidos (Status 429)
-                if (response.status === 429) {
-                    throw new Error("RATE_LIMIT"); 
-                }
-                if (!response.ok) {
-                    throw new Error("ERRO_API");
-                }
+                if (response.status === 429) throw new Error("RATE_LIMIT");
+                if (!response.ok) throw new Error(`HTTP_${response.status}`);
                 return response.json();
             })
             .then(dados => {
-                // Verifica se a Steam retornou sucesso e se o jogo possui cartas listadas
-                if (dados && dados.success && dados.total_count > 0 && dados.results && dados.results.length > 0) {
+                if (dados && dados.success && dados.results && dados.results.length > 0) {
                     
-                    // total_count nos dá a quantidade exata de cartas diferentes daquele jogo no mercado
-                    const totalCartas = dados.total_count;
-                    
-                    // O sell_price vem em centavos (ex: 25 = R$ 0,25). Dividimos por 100.
-                    const precoMenorCarta = dados.results[0].sell_price / 100;
-
-                    sendResponse({ 
-                        sucesso: true, 
-                        totalCartas: totalCartas, 
-                        precoMenorCarta: precoMenorCarta 
+                    // 1. FILTRAGEM LOCAL: Remove Foil/Brilhante
+                    // O filtro usa .toLowerCase() para evitar erros de acentuação ou caixa
+                    const cartasNormais = dados.results.filter(item => {
+                        const nome = item.name.toLowerCase();
+                        return !nome.includes("foil") && !nome.includes("brilhante") && !nome.includes("shiny");
                     });
+
+                    // 2. CONTAGEM EXATA: Quantos tipos diferentes existem?
+                    const nomesUnicos = new Set(cartasNormais.map(item => item.name));
+                    const totalCartasReais = nomesUnicos.size;
+
+                    // 3. PREÇO: Menor preço apenas entre as cartas normais
+                    const precoMenorCarta = cartasNormais.length > 0 
+                        ? Math.min(...cartasNormais.map(item => item.sell_price)) / 100 
+                        : 0;
+
+                    if (totalCartasReais > 0) {
+                        sendResponse({ 
+                            sucesso: true, 
+                            totalCartas: totalCartasReais, 
+                            precoMenorCarta: precoMenorCarta 
+                        });
+                    } else {
+                        // Se não sobrou nenhuma carta após o filtro
+                        sendResponse({ sucesso: false, erro: "SEM_CARTAS_NORMAIS" });
+                    }
                 } else {
-                    // Jogo não tem cartas ou as cartas não podem ser vendidas
                     sendResponse({ sucesso: false, erro: "SEM_CARTAS" });
                 }
             })
@@ -39,6 +47,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 sendResponse({ sucesso: false, erro: erro.message });
             });
 
-        return true; // Mantém o canal aberto para a resposta assíncrona
+        return true;
     }
 });
